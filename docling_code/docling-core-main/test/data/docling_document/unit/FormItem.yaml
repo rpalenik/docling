@@ -1,0 +1,32 @@
+captions: []
+children: []
+content_layer: body
+footnotes: []
+graph:
+  cells:
+  - cell_id: 0
+    item_ref: null
+    label: key
+    orig: '#'
+    prov: null
+    text: number
+  - cell_id: 1
+    item_ref: null
+    label: value
+    orig: '1'
+    prov: null
+    text: '1'
+  links:
+  - label: to_value
+    source_cell_id: 0
+    target_cell_id: 1
+  - label: to_key
+    source_cell_id: 1
+    target_cell_id: 0
+image: null
+label: form
+meta: null
+parent: null
+prov: []
+references: []
+self_ref: '#'

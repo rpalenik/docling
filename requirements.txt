@@ -1,0 +1,6 @@
+docling
+docling-ibm-models
+mlx-vlm
+PyYAML
+beautifulsoup4
+

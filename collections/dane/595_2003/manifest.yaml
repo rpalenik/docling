@@ -1,0 +1,33 @@
+law_id: "595/2003"
+law_name: "Zákon o dani z príjmov"
+collection_id: "dane"
+source: "slov-lex"
+
+main_document:
+  type: "html"
+  filename: "595:2003 Z. z. - Zákon o dani z príjmov.html"
+  docling_cache: "cache/main_docling.json"
+
+annexes:
+  - number: "1"
+    title: "Príloha č. 1 k zákonu č. 595/2003 Z. z."
+    type: "external_pdf"
+    filename: "annexes/priloha_1.pdf"
+    docling_cache: "cache/priloha_1_docling.json"
+    content_type: "table"
+  
+  - number: "2"
+    title: "Príloha č. 2 k zákonu č. 595/2003 Z. z."
+    type: "inline"
+    content_type: "text"
+  
+  - number: "3"
+    title: "Príloha č. 3 k zákonu č. 595/2003 Z. z."
+    type: "external_pdf"
+    filename: "annexes/priloha_3.pdf"
+    docling_cache: "cache/priloha_3_docling.json"
+    content_type: "table"
+
+metadata:
+  created: "2025-12-03"
+  version: "1.0"

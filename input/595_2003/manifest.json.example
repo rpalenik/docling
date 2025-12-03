@@ -1,0 +1,50 @@
+{
+  "law_id": "595/2003",
+  "law_name": "Zákon o dani z príjmov",
+  "source": "slov-lex",
+  "source_url": "https://www.slov-lex.sk/pravne-predpisy/SK/ZZ/2003/595/",
+  "main_document": {
+    "type": "html",
+    "path": "main.html",
+    "docling_cache": "cache/595_2003/main_docling.json"
+  },
+  "annexes": [
+    {
+      "number": "1",
+      "title": "Príloha č. 1 k zákonu č. 595/2003 Z. z.",
+      "type": "external_pdf",
+      "url": "../../../../../pdf/prilohy/SK/ZZ/2003/595/20260101_5740211-2.pdf",
+      "local_path": "annexes/priloha_1.pdf",
+      "docling_cache": "cache/595_2003/priloha_1_docling.json",
+      "content_type": "table",
+      "description": "Zaradenie hmotného majetku do odpisových skupín",
+      "html_id": "prilohy.priloha-priloha_c_1_k_zakonu_c_595_2003_z_z"
+    },
+    {
+      "number": "2",
+      "title": "Príloha č. 2 k zákonu č. 595/2003 Z. z.",
+      "type": "inline",
+      "content_type": "text",
+      "description": "Zoznam preberaných právne záväzných aktov Európskej únie",
+      "html_id": "prilohy.priloha-priloha_c_2_k_zakonu_c_595_2003_z_z"
+    },
+    {
+      "number": "3",
+      "title": "Príloha č. 3 k zákonu č. 595/2003 Z. z.",
+      "type": "external_pdf",
+      "url": "../../../../../pdf/prilohy/SK/ZZ/2003/595/20260101_5350994-2.pdf",
+      "local_path": "annexes/priloha_3.pdf",
+      "docling_cache": "cache/595_2003/priloha_3_docling.json",
+      "content_type": "table",
+      "description": "Hmotný majetok",
+      "html_id": "prilohy.priloha-priloha_c_3_k_zakonu_c_595_2003_z_z"
+    }
+  ],
+  "metadata": {
+    "created": "2025-12-02",
+    "last_processed": null,
+    "version": "1.0",
+    "notes": "Príloha č. 1 obsahuje 7 tabuliek s odpisovými skupinami 0-6. Príloha č. 3 obsahuje 1 tabuľku s hmotným majetkom."
+  }
+}
+
