@@ -15,6 +15,9 @@ annexes:
     filename: "annexes/priloha_1.pdf"
     docling_cache: "cache/priloha_1_docling.json"
     content_type: "table"
+    parser: "hybrid"
+    parser_options:
+      reconstruct_tables: true
   
   - number: "2"
     title: "Príloha č. 2 k zákonu č. 595/2003 Z. z."

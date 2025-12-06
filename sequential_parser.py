@@ -974,11 +974,130 @@ def extract_odsek_text(
 # Table Processing Functions (GPT-inspired improvements)
 # ============================================================================
 
+def decode_character_codes(text: str) -> str:
+    """
+    Decode character codes like /c90/c65... to actual text.
+    Pattern: /c followed by decimal number represents Unicode code point.
+    
+    This is needed because some PDF pages use custom font encoding where
+    characters are stored as /cXX codes instead of proper Unicode.
+    
+    Some PDFs use Windows-1250 (Central European) encoding values for
+    Slovak characters, so we map those specially.
+    """
+    if not text or '/c' not in text:
+        return text
+    
+    # Windows-1250 to Unicode mapping for Slovak characters
+    # These code points in PDF map to Slovak/Czech characters
+    win1250_to_unicode = {
+        138: 'Š',  # /c138 -> Š
+        140: 'Ś',  # /c140 -> Ś  
+        141: 'Ť',  # /c141 -> Ť
+        142: 'Ž',  # /c142 -> Ž
+        150: '–',  # /c150 -> en dash
+        154: 'š',  # /c154 -> š
+        156: 'ś',  # /c156 -> ś
+        157: 'ť',  # /c157 -> ť
+        158: 'ž',  # /c158 -> ž
+        159: 'ź',  # /c159 -> ź
+        165: 'Ą',  # /c165 -> Ą
+        169: '©',  # /c169 -> ©
+        175: 'Ż',  # /c175 -> Ż
+        179: 'ł',  # /c179 -> ł
+        185: 'ą',  # /c185 -> ą
+        188: 'Ľ',  # /c188 -> Ľ
+        189: '˝',  # /c189 -> double acute
+        190: 'ľ',  # /c190 -> ľ
+        191: 'ż',  # /c191 -> ż
+        192: 'Ŕ',  # /c192 -> Ŕ
+        193: 'Á',  # /c193 -> Á
+        194: 'Â',  # /c194 -> Â
+        195: 'Ă',  # /c195 -> Ă
+        196: 'Ä',  # /c196 -> Ä
+        197: 'Ĺ',  # /c197 -> Ĺ
+        198: 'Ć',  # /c198 -> Ć
+        199: 'Ç',  # /c199 -> Ç
+        200: 'Č',  # /c200 -> Č
+        201: 'É',  # /c201 -> É
+        202: 'Ę',  # /c202 -> Ę
+        203: 'Ë',  # /c203 -> Ë
+        204: 'Ě',  # /c204 -> Ě
+        205: 'Í',  # /c205 -> Í
+        206: 'Î',  # /c206 -> Î
+        207: 'Ď',  # /c207 -> Ď
+        208: 'Đ',  # /c208 -> Đ
+        209: 'Ń',  # /c209 -> Ń
+        210: 'Ň',  # /c210 -> Ň
+        211: 'Ó',  # /c211 -> Ó
+        212: 'Ô',  # /c212 -> Ô
+        213: 'Ő',  # /c213 -> Ő
+        214: 'Ö',  # /c214 -> Ö
+        215: '×',  # /c215 -> multiplication sign
+        216: 'Ř',  # /c216 -> Ř
+        217: 'Ů',  # /c217 -> Ů
+        218: 'Ú',  # /c218 -> Ú
+        219: 'Ű',  # /c219 -> Ű
+        220: 'Ü',  # /c220 -> Ü
+        221: 'Ý',  # /c221 -> Ý
+        222: 'Ţ',  # /c222 -> Ţ
+        223: 'ß',  # /c223 -> ß
+        224: 'ŕ',  # /c224 -> ŕ
+        225: 'á',  # /c225 -> á
+        226: 'â',  # /c226 -> â
+        227: 'ă',  # /c227 -> ă
+        228: 'ä',  # /c228 -> ä
+        229: 'ĺ',  # /c229 -> ĺ
+        230: 'ć',  # /c230 -> ć
+        231: 'ç',  # /c231 -> ç
+        232: 'č',  # /c232 -> č
+        233: 'é',  # /c233 -> é
+        234: 'ę',  # /c234 -> ę
+        235: 'ë',  # /c235 -> ë
+        236: 'ě',  # /c236 -> ě
+        237: 'í',  # /c237 -> í
+        238: 'î',  # /c238 -> î
+        239: 'ď',  # /c239 -> ď
+        240: 'đ',  # /c240 -> đ
+        241: 'ń',  # /c241 -> ń
+        242: 'ň',  # /c242 -> ň
+        243: 'ó',  # /c243 -> ó
+        244: 'ô',  # /c244 -> ô
+        245: 'ő',  # /c245 -> ő
+        246: 'ö',  # /c246 -> ö
+        247: '÷',  # /c247 -> division sign
+        248: 'ř',  # /c248 -> ř
+        249: 'ů',  # /c249 -> ů
+        250: 'ú',  # /c250 -> ú
+        251: 'ű',  # /c251 -> ű
+        252: 'ü',  # /c252 -> ü
+        253: 'ý',  # /c253 -> ý
+        254: 'ţ',  # /c254 -> ţ
+        255: '˙',  # /c255 -> dot above
+    }
+    
+    def replace_code(match):
+        code_str = match.group(1)
+        try:
+            code_point = int(code_str)
+            # Check if it's a Windows-1250 character
+            if code_point in win1250_to_unicode:
+                return win1250_to_unicode[code_point]
+            return chr(code_point)
+        except (ValueError, OverflowError):
+            return match.group(0)  # Return original if can't decode
+    
+    # Replace /c followed by numbers with decoded character
+    decoded = re.sub(r'/c(\d+)', replace_code, text)
+    return decoded
+
+
 def table_to_rows_from_grid(table: Any) -> List[List[str]]:
     """
     Prevedie Docling tabuľku na zoznam riadkov so stringami priamo z data.grid.
     
     Rýchlejší a priamejší prístup ako export_to_dataframe.
+    Decodes /cXX character codes from PDF fonts with custom encoding.
     
     Args:
         table: Table object from doc.tables
@@ -1005,11 +1124,16 @@ def table_to_rows_from_grid(table: Any) -> List[List[str]]:
         
         def get_cell_text(cell):
             if hasattr(cell, 'text'):
-                return getattr(cell, 'text', '').strip()
+                text = getattr(cell, 'text', '').strip()
             elif isinstance(cell, dict):
-                return cell.get("text", "").strip()
+                text = cell.get("text", "").strip()
             else:
-                return str(cell).strip()
+                text = str(cell).strip()
+            
+            # Decode /cXX character codes if present
+            if '/c' in text:
+                text = decode_character_codes(text)
+            return text
         
         cells = sorted(row, key=get_col_idx)
         rows.append([get_cell_text(c) for c in cells])
@@ -2102,10 +2226,8 @@ class SequentialLawChunker(BaseChunker):
             },
             "parts": [],
             "annexes": {
-                "content": "",
-                "tables": [],
-                "pictures": [],
-                "annex_list": []
+                "annex_list": [],
+                "summary": {}
             },
             "footnotes": [],
             "references_index": {}
@@ -2292,10 +2414,6 @@ class SequentialLawChunker(BaseChunker):
             _close_annex(current_annex, annex_texts, doc, structure, annex_start_idx, total_elements, 
                         annex_marker_text_elem, all_annex_texts, seen_annex_tables)
         
-        # Sort tables by index
-        if structure["annexes"]["tables"]:
-            structure["annexes"]["tables"].sort(key=lambda x: x["index"])
-        
         # Close any open footnote
         if current_footnote:
             _close_footnote(current_footnote, footnote_texts, structure)
@@ -2318,6 +2436,17 @@ class SequentialLawChunker(BaseChunker):
         structure["metadata"]["total_subitems"] = subitems_count
         structure["metadata"]["total_annexes"] = len(structure.get("annexes", {}).get("annex_list", []))
         structure["metadata"]["total_footnotes"] = footnotes_count
+        
+        # Initialize annexes summary if not already set
+        if "annexes" in structure and "summary" not in structure["annexes"]:
+            annex_list = structure["annexes"].get("annex_list", [])
+            inline_count = sum(1 for a in annex_list if a.get("source") == "inline")
+            external_count = sum(1 for a in annex_list if a.get("source") == "external_pdf")
+            structure["annexes"]["summary"] = {
+                "total_annexes": len(annex_list),
+                "external_annexes": external_count,
+                "inline_annexes": inline_count
+            }
         
         log_progress("INFO", f"Reconstruction complete: {actual_parts_count} parts, {paragraphs_count} paragraphs, "
                    f"{odseks_count} odseks, {pismenos_count} pismenos, {subitems_count} subitems, "
@@ -3029,10 +3158,8 @@ def reconstruct_document(doc: DoclingDocument) -> Dict[str, Any]:
         },
         "parts": [],
         "annexes": {
-            "content": "",
-            "tables": [],
-            "pictures": [],
-            "annex_list": []
+            "annex_list": [],
+            "summary": {}
         },
         "footnotes": [],
         "references_index": {}
@@ -3775,11 +3902,7 @@ def reconstruct_document(doc: DoclingDocument) -> Dict[str, Any]:
         # annex_end_idx is end of document (total_elements)
         _close_annex(current_annex, annex_texts, doc, structure, annex_start_idx, total_elements, annex_marker_text_elem, all_annex_texts, seen_annex_tables)
     
-    # Sort tables by index for consistency
-    if structure["annexes"]["tables"]:
-        structure["annexes"]["tables"].sort(key=lambda x: x["index"])
-    
-    # Close any open footnote
+        # Close any open footnote
     if current_footnote:
         _close_footnote(current_footnote, footnote_texts, structure)
         footnotes_count += 1
@@ -3799,6 +3922,17 @@ def reconstruct_document(doc: DoclingDocument) -> Dict[str, Any]:
     structure["metadata"]["total_annexes"] = len(structure.get("annexes", {}).get("annex_list", []))
     structure["metadata"]["total_footnotes"] = footnotes_count
     
+    # Initialize annexes summary if not already set
+    if "annexes" in structure and "summary" not in structure["annexes"]:
+        annex_list = structure["annexes"].get("annex_list", [])
+        inline_count = sum(1 for a in annex_list if a.get("source") == "inline")
+        external_count = sum(1 for a in annex_list if a.get("source") == "external_pdf")
+        structure["annexes"]["summary"] = {
+            "total_annexes": len(annex_list),
+            "external_annexes": external_count,
+            "inline_annexes": inline_count
+        }
+    
     log_progress("INFO", f"Reconstruction complete: {actual_parts_count} parts, {paragraphs_count} paragraphs, {odseks_count} odseks, {pismenos_count} pismenos, {subitems_count} subitems, {structure['metadata']['total_annexes']} annexes, {footnotes_count} footnotes", elapsed)
     
     return structure
@@ -3810,8 +3944,8 @@ def reconstruct_document(doc: DoclingDocument) -> Dict[str, Any]:
 
 def _close_annex(annex: Optional[Dict], texts: List[Dict], doc: DoclingDocument, structure: Dict, annex_start_idx: Optional[int] = None, annex_end_idx: Optional[int] = None, annex_marker_text_elem=None, all_annex_texts: List = None, seen_annex_tables: set = None) -> None:
     """
-    Close current annex and add to unified annexes section.
-    Collects all texts and tables without duplication.
+    Close current annex and add to annex_list with structured content.
+    Stores content per annex (text, tables, pictures) instead of mixing at top-level.
     
     Args:
         annex: Current annex dictionary
@@ -3821,34 +3955,24 @@ def _close_annex(annex: Optional[Dict], texts: List[Dict], doc: DoclingDocument,
         annex_start_idx: Index where annex marker was found (for table detection)
         annex_end_idx: Index where next annex starts (for table detection)
         annex_marker_text_elem: The text element of the annex marker (for parent reference)
-        all_annex_texts: List to collect all annex texts
+        all_annex_texts: List to collect all annex texts (deprecated, kept for compatibility)
         seen_annex_tables: Set to track tables and avoid duplicates
     """
     if not annex:
         return
     
-    if all_annex_texts is None:
-        all_annex_texts = []
     if seen_annex_tables is None:
         seen_annex_tables = set()
     
-    # Combine text content for this annex
+    # Combine text content for this annex (clean text, no encoding issues)
     content_lines = [t["text"] for t in texts if t.get("text")]
-    annex["content"] = "\n".join(content_lines)
+    annex_text = "\n".join(content_lines)
     
-    # Add annex to annex_list for references
-    structure["annexes"]["annex_list"].append({
-        "id": annex["id"],
-        "number": annex["number"],
-        "title": annex["title"],
-        "content": annex["content"]
-    })
-    
-    # Add all texts to unified content
-    all_annex_texts.extend(texts)
+    # Collect tables and pictures for this annex
+    annex_tables = []
+    annex_pictures = []
     
     # Extract tables and pictures from text references
-    text_pos = len(structure["annexes"]["content"])  # Current position in unified content
     for t in texts:
         if t.get("table_idx") is not None:
             table_idx = t["table_idx"]
@@ -3856,17 +3980,17 @@ def _close_annex(annex: Optional[Dict], texts: List[Dict], doc: DoclingDocument,
                 if table_idx not in seen_annex_tables:
                     # Format table with full data
                     table_data = format_table_for_json(doc.tables[table_idx], doc, table_idx)
-                    table_data["position_in_text"] = text_pos
-                    structure["annexes"]["tables"].append(table_data)
+                    # Remove position_in_text as it's not needed in per-annex structure
+                    if "position_in_text" in table_data:
+                        del table_data["position_in_text"]
+                    annex_tables.append(table_data)
                     seen_annex_tables.add(table_idx)
         if t.get("picture_idx") is not None:
             picture_idx = t["picture_idx"]
             if hasattr(doc, 'pictures') and picture_idx < len(doc.pictures):
-                structure["annexes"]["pictures"].append({
-                    "index": picture_idx,
-                    "position_in_text": text_pos
+                annex_pictures.append({
+                    "index": picture_idx
                 })
-        text_pos += len(t.get("text", "")) + 1  # +1 for newline
     
     # Find additional tables that belong to annexes using document structure
     if annex_start_idx is not None and annex_end_idx is not None:
@@ -3875,15 +3999,24 @@ def _close_annex(annex: Optional[Dict], texts: List[Dict], doc: DoclingDocument,
             if table_idx not in seen_annex_tables:
                 # Format table with full data
                 table_data = format_table_for_json(doc.tables[table_idx], doc, table_idx)
-                table_data["position_in_text"] = len(structure["annexes"]["content"])  # Approximate position
-                structure["annexes"]["tables"].append(table_data)
+                if "position_in_text" in table_data:
+                    del table_data["position_in_text"]
+                annex_tables.append(table_data)
                 seen_annex_tables.add(table_idx)
                 log_progress("INFO", f"Found table {table_idx} for annexes section via structure analysis")
     
-    # Update unified content
-    if structure["annexes"]["content"]:
-        structure["annexes"]["content"] += "\n\n"
-    structure["annexes"]["content"] += annex["content"]
+    # Add annex to annex_list with structured content
+    structure["annexes"]["annex_list"].append({
+        "id": annex["id"],
+        "number": annex["number"],
+        "title": annex["title"],
+        "source": "inline",
+        "content": {
+            "text": annex_text,
+            "tables": annex_tables,
+            "pictures": annex_pictures
+        }
+    })
 
 
 def _check_table_assignments(structure: Dict, doc: DoclingDocument) -> None:
@@ -4822,28 +4955,36 @@ def save_markdown(structure: Dict[str, Any], doc: DoclingDocument, output_path: 
             
             lines.append("\n---\n\n")
     
-    # Process annexes (unified section)
+    # Process annexes (iterate through annex_list)
     annexes_section = structure.get("annexes", {})
-    if annexes_section and (annexes_section.get("content") or annexes_section.get("tables") or annexes_section.get("annex_list")):
+    annex_list = annexes_section.get("annex_list", [])
+    if annex_list:
         lines.append("# Prílohy\n\n")
         
-        # Unified annex content
-        if annexes_section.get("content"):
-            lines.append(f"{annexes_section['content']}\n\n")
-        
-        # Tables in annexes section (only once, no duplicates)
-        for table_ref in annexes_section.get("tables", []):
-            table_idx = table_ref["index"]
-            if hasattr(doc, 'tables') and table_idx < len(doc.tables):
-                lines.append(format_table_as_markdown(doc.tables[table_idx], doc))
-        
-        # Pictures in annexes section
-        for pic_ref in annexes_section.get("pictures", []):
-            pic_idx = pic_ref["index"]
-            if hasattr(doc, 'pictures') and pic_idx < len(doc.pictures):
-                lines.append(format_picture_as_markdown(doc.pictures[pic_idx], doc))
-        
-        lines.append("\n---\n\n")
+        # Process each annex separately
+        for annex in annex_list:
+            # Annex title
+            annex_title = annex.get('title') or f"Príloha č. {annex.get('number', '?')}"
+            lines.append(f"## {annex_title}\n\n")
+            
+            # Annex text content
+            content = annex.get("content", {})
+            if content.get("text"):
+                lines.append(f"{content['text']}\n\n")
+            
+            # Tables for this annex
+            for table_data in content.get("tables", []):
+                table_idx = table_data.get("index")
+                if table_idx is not None and hasattr(doc, 'tables') and table_idx < len(doc.tables):
+                    lines.append(format_table_as_markdown(doc.tables[table_idx], doc))
+            
+            # Pictures for this annex
+            for pic_ref in content.get("pictures", []):
+                pic_idx = pic_ref.get("index")
+                if pic_idx is not None and hasattr(doc, 'pictures') and pic_idx < len(doc.pictures):
+                    lines.append(format_picture_as_markdown(doc.pictures[pic_idx], doc))
+            
+            lines.append("\n---\n\n")
     
     # Process footnotes
     if structure.get("footnotes"):
