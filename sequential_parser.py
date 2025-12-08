@@ -4579,9 +4579,17 @@ def extract_pismenos_from_html(html_path: Path, paragraph_id: str) -> Tuple[str,
     if nadpis_div:
         nadpis = nadpis_div.get_text(strip=True)
     
-    # Extract intro text - the direct child <div class="text"> that has id like "paragraf-2.text"
+    # Extract intro text - first try direct child, then look in odsek
     intro_text = ""
     intro_div = para_div.find('div', id=f"{paragraph_id}.text", class_='text')
+    if not intro_div:
+        # Try to find intro in an odsek (e.g., paragraf-15.odsek-1.text)
+        # Only get text from odsek if it comes before any pismenos
+        odsek_divs = para_div.find_all('div', class_='odsek', recursive=False)
+        if odsek_divs:
+            # Get the first odsek's text
+            first_odsek = odsek_divs[0]
+            intro_div = first_odsek.find('div', class_='text')
     if intro_div:
         intro_text = intro_div.get_text(strip=True)
     
