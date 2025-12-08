@@ -4541,6 +4541,175 @@ def _close_paragraph(paragraph: Optional[Dict], intro_texts: List[Dict], part: O
     part["paragraphs"].append(paragraph)
 
 
+# ============================================================================
+# HTML Fallback for Missing Pismenos
+# ============================================================================
+
+def extract_pismenos_from_html(html_path: Path, paragraph_id: str) -> List[Dict[str, Any]]:
+    """
+    Extract pismenos from HTML source for a specific paragraph.
+    
+    The HTML source has proper structure with <div class="pismeno"> elements
+    that Docling may have lost during conversion.
+    
+    Args:
+        html_path: Path to HTML source file
+        paragraph_id: Paragraph ID (e.g., "paragraf-2")
+        
+    Returns:
+        List of pismeno dictionaries with marker, text, and subitems
+    """
+    from bs4 import BeautifulSoup
+    
+    try:
+        with open(html_path, 'r', encoding='utf-8') as f:
+            soup = BeautifulSoup(f.read(), 'html.parser')
+    except Exception as e:
+        log_progress("WARNING", f"Failed to load HTML for pismeno extraction: {e}")
+        return []
+    
+    pismenos = []
+    
+    # Find all pismeno divs for this paragraph
+    # HTML IDs are like: paragraf-2.pismeno-a, paragraf-2.pismeno-b, etc.
+    pismeno_divs = soup.find_all('div', class_='pismeno')
+    
+    for pismeno_div in pismeno_divs:
+        div_id = pismeno_div.get('id', '')
+        
+        # Check if this pismeno belongs to our paragraph
+        if not div_id.startswith(f"{paragraph_id}.pismeno-"):
+            continue
+        
+        # Extract pismeno letter from ID
+        pismeno_letter = div_id.split('.pismeno-')[-1] if '.pismeno-' in div_id else ''
+        
+        # Get marker from pismenoOznacenie div
+        marker_div = pismeno_div.find('div', class_='pismenoOznacenie')
+        marker = marker_div.get_text(strip=True) if marker_div else f"{pismeno_letter})"
+        
+        # Get main text from text div (direct child, not from nested bods)
+        text_div = pismeno_div.find('div', class_='text', recursive=False)
+        # Also check for direct text div child
+        if not text_div:
+            for child in pismeno_div.children:
+                if hasattr(child, 'get') and child.get('class') and 'text' in child.get('class', []):
+                    text_div = child
+                    break
+        
+        main_text = text_div.get_text(strip=True) if text_div else ''
+        
+        # Extract subitems (bod elements)
+        subitems = []
+        bod_divs = pismeno_div.find_all('div', class_='bod')
+        
+        for bod_div in bod_divs:
+            bod_marker_div = bod_div.find('div', class_='bodOznacenie')
+            bod_text_div = bod_div.find('div', class_='text')
+            
+            bod_marker = bod_marker_div.get_text(strip=True) if bod_marker_div else ''
+            bod_text = bod_text_div.get_text(strip=True) if bod_text_div else ''
+            
+            if bod_marker or bod_text:
+                subitems.append({
+                    "marker": bod_marker,
+                    "text": bod_text,
+                    "tables": [],
+                    "pictures": [],
+                    "references_metadata": [],
+                    "footnotes_metadata": []
+                })
+        
+        # Create pismeno entry
+        pismeno_entry = {
+            "id": f"pismeno-{paragraph_id.replace('paragraf-', '')}.{pismeno_letter}",
+            "marker": marker,
+            "text": main_text,
+            "subitems": subitems,
+            "tables": [],
+            "pictures": [],
+            "references_metadata": [],
+            "footnotes_metadata": []
+        }
+        
+        pismenos.append(pismeno_entry)
+    
+    return pismenos
+
+
+def enrich_paragraphs_from_html(structure: Dict[str, Any], html_path: Path) -> int:
+    """
+    Post-process document structure to fill in missing pismenos from HTML source.
+    
+    Docling sometimes loses the pismeno structure for certain paragraphs (like § 2).
+    This function detects such paragraphs (no odseks, content in intro_text) and
+    extracts the proper pismeno structure from HTML.
+    
+    Args:
+        structure: Document structure from reconstruct_document()
+        html_path: Path to HTML source file
+        
+    Returns:
+        Number of paragraphs enriched
+    """
+    if not html_path or not html_path.exists():
+        log_progress("DEBUG", "No HTML source available for pismeno enrichment")
+        return 0
+    
+    enriched_count = 0
+    
+    for part in structure.get("parts", []):
+        for paragraph in part.get("paragraphs", []):
+            # Check if this paragraph needs enrichment:
+            # - Has no odseks
+            # - Has significant intro_text (indicating content was dumped there)
+            odseks = paragraph.get("odseks", [])
+            intro_text = paragraph.get("intro_text", "")
+            
+            if not odseks and len(intro_text) > 200:
+                paragraph_id = paragraph.get("id", "")
+                
+                # Try to extract pismenos from HTML
+                pismenos = extract_pismenos_from_html(html_path, paragraph_id)
+                
+                if pismenos:
+                    # Create a synthetic odsek to hold the pismenos
+                    # (since the original structure expects pismenos inside odseks)
+                    synthetic_odsek = {
+                        "id": f"odsek-{paragraph_id.replace('paragraf-', '')}.1",
+                        "marker": "",  # No marker for synthetic odsek
+                        "text": "",  # Intro text before pismenos (if any)
+                        "tables": [],
+                        "pictures": [],
+                        "references_metadata": [],
+                        "footnotes_metadata": [],
+                        "pismenos": pismenos
+                    }
+                    
+                    # Extract any intro text before the first pismeno
+                    # The intro_text often starts with a title like "Základné pojmy\nNa účely..."
+                    lines = intro_text.split('\n')
+                    intro_lines = []
+                    for line in lines[:5]:  # Check first few lines
+                        stripped = line.strip()
+                        if stripped and len(stripped) < 100:
+                            intro_lines.append(stripped)
+                        else:
+                            break
+                    
+                    # Set paragraph intro to just the title portion
+                    if intro_lines:
+                        paragraph["intro_text"] = intro_lines[0]
+                        synthetic_odsek["text"] = '\n'.join(intro_lines[1:]) if len(intro_lines) > 1 else ""
+                    
+                    paragraph["odseks"] = [synthetic_odsek]
+                    enriched_count += 1
+                    
+                    log_progress("INFO", f"Enriched {paragraph_id} with {len(pismenos)} pismenos from HTML")
+    
+    return enriched_count
+
+
 def _build_references_index(structure: Dict[str, Any]) -> None:
     """
     Build references_index with correct paths after all items are added.
@@ -5084,6 +5253,23 @@ Examples:
         # Reconstruct document using SequentialLawChunker (docling-native approach)
         chunker = SequentialLawChunker()
         structure = chunker._reconstruct_document_with_docling(doc)
+        
+        # Enrich paragraphs with pismenos from HTML source if available
+        html_path = None
+        if args.html_source:
+            html_path = Path(args.html_source)
+        else:
+            # Try to find HTML in parent directory (common location)
+            input_parent = input_path.parent.parent  # Go up from cache/ to law directory
+            html_files = list(input_parent.glob("*.html"))
+            if html_files:
+                html_path = html_files[0]
+                log_progress("INFO", f"Auto-detected HTML source: {html_path.name}")
+        
+        if html_path and html_path.exists():
+            enriched = enrich_paragraphs_from_html(structure, html_path)
+            if enriched > 0:
+                log_progress("INFO", f"Enriched {enriched} paragraphs with pismenos from HTML")
         
         # Process annexes if requested
         if not args.no_annexes and (args.manifest or args.annexes_dir or args.html_source):
