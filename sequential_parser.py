@@ -4545,9 +4545,9 @@ def _close_paragraph(paragraph: Optional[Dict], intro_texts: List[Dict], part: O
 # HTML Fallback for Missing Pismenos
 # ============================================================================
 
-def extract_pismenos_from_html(html_path: Path, paragraph_id: str) -> Tuple[str, List[Dict[str, Any]]]:
+def extract_pismenos_from_html(html_path: Path, paragraph_id: str) -> Tuple[str, str, List[Dict[str, Any]]]:
     """
-    Extract intro text and pismenos from HTML source for a specific paragraph.
+    Extract nadpis, intro text and pismenos from HTML source for a specific paragraph.
     
     The HTML source has proper structure with <div class="pismeno"> elements
     that Docling may have lost during conversion.
@@ -4557,7 +4557,7 @@ def extract_pismenos_from_html(html_path: Path, paragraph_id: str) -> Tuple[str,
         paragraph_id: Paragraph ID (e.g., "paragraf-2")
         
     Returns:
-        Tuple of (intro_text, list of pismeno dictionaries)
+        Tuple of (nadpis, intro_text, list of pismeno dictionaries)
     """
     from bs4 import BeautifulSoup
     
@@ -4566,12 +4566,18 @@ def extract_pismenos_from_html(html_path: Path, paragraph_id: str) -> Tuple[str,
             soup = BeautifulSoup(f.read(), 'html.parser')
     except Exception as e:
         log_progress("WARNING", f"Failed to load HTML for pismeno extraction: {e}")
-        return "", []
+        return "", "", []
     
     # Find the paragraph div
     para_div = soup.find('div', id=paragraph_id)
     if not para_div:
-        return "", []
+        return "", "", []
+    
+    # Extract nadpis (paragraph title like "Základné pojmy", "Sadzba dane")
+    nadpis = ""
+    nadpis_div = para_div.find('div', class_='paragrafNadpis')
+    if nadpis_div:
+        nadpis = nadpis_div.get_text(strip=True)
     
     # Extract intro text - the direct child <div class="text"> that has id like "paragraf-2.text"
     intro_text = ""
@@ -4644,7 +4650,7 @@ def extract_pismenos_from_html(html_path: Path, paragraph_id: str) -> Tuple[str,
         
         pismenos.append(pismeno_entry)
     
-    return intro_text, pismenos
+    return nadpis, intro_text, pismenos
 
 
 def enrich_paragraphs_from_html(structure: Dict[str, Any], html_path: Path) -> int:
@@ -4679,8 +4685,8 @@ def enrich_paragraphs_from_html(structure: Dict[str, Any], html_path: Path) -> i
             if not odseks and len(intro_text) > 200:
                 paragraph_id = paragraph.get("id", "")
                 
-                # Try to extract intro text and pismenos from HTML
-                html_intro_text, pismenos = extract_pismenos_from_html(html_path, paragraph_id)
+                # Try to extract nadpis, intro text and pismenos from HTML
+                nadpis, html_intro_text, pismenos = extract_pismenos_from_html(html_path, paragraph_id)
                 
                 if pismenos:
                     # Create a synthetic odsek to hold the pismenos
@@ -4696,13 +4702,18 @@ def enrich_paragraphs_from_html(structure: Dict[str, Any], html_path: Path) -> i
                         "pismenos": pismenos
                     }
                     
+                    # Set paragraph title to include nadpis if available
+                    # e.g., "§ 2 Základné pojmy" or "§ 15 Sadzba dane"
+                    if nadpis:
+                        paragraph["title"] = f"{paragraph.get('marker', '')} {nadpis}"
+                    
                     # Set paragraph intro to the extracted intro from HTML
                     # e.g., "Na účely tohto zákona sa rozumie"
                     paragraph["intro_text"] = html_intro_text
                     paragraph["odseks"] = [synthetic_odsek]
                     enriched_count += 1
                     
-                    log_progress("INFO", f"Enriched {paragraph_id} with {len(pismenos)} pismenos from HTML (intro: '{html_intro_text[:50]}...')")
+                    log_progress("INFO", f"Enriched {paragraph_id} with {len(pismenos)} pismenos from HTML (nadpis: '{nadpis}', intro: '{html_intro_text[:30]}...')")
     
     return enriched_count
 

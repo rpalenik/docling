@@ -510,6 +510,7 @@ def chunk_at_pismeno_level(
             para_context = ""
             intro = paragraph.get('intro_text', '')
             marker = paragraph.get('marker', '')
+            title = paragraph.get('title', marker)  # Use title if available, fallback to marker
             odseks = paragraph.get('odseks', [])
             
             # Check if this paragraph has embedded pismenos (no odseks but pismeno patterns in intro)
@@ -525,7 +526,9 @@ def chunk_at_pismeno_level(
             )
             
             if include_context:
-                para_context = f"\n## {marker}\n"
+                # Use title if it contains more info than just marker (e.g., "§ 2 Základné pojmy")
+                para_header = title if title and title != marker else marker
+                para_context = f"\n## {para_header}\n"
                 if intro:
                     if has_embedded_pismenos:
                         # Parse embedded pismenos with proper indentation
@@ -541,6 +544,8 @@ def chunk_at_pismeno_level(
                                 formatted_rest = parse_embedded_pismenos(rest)
                                 para_context += f"\n{formatted_rest}\n"
                     elif len(intro) < 100 and '\n' not in intro:
+                        # Short intro - use as subtitle only if title doesn't already contain nadpis
+                        # e.g., "Na účely tohto zákona sa rozumie" for § 2
                         para_context += f"### {intro}\n"
                     else:
                         para_context += f"\n{intro}\n"
