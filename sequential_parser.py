@@ -4545,9 +4545,9 @@ def _close_paragraph(paragraph: Optional[Dict], intro_texts: List[Dict], part: O
 # HTML Fallback for Missing Pismenos
 # ============================================================================
 
-def extract_pismenos_from_html(html_path: Path, paragraph_id: str) -> List[Dict[str, Any]]:
+def extract_pismenos_from_html(html_path: Path, paragraph_id: str) -> Tuple[str, List[Dict[str, Any]]]:
     """
-    Extract pismenos from HTML source for a specific paragraph.
+    Extract intro text and pismenos from HTML source for a specific paragraph.
     
     The HTML source has proper structure with <div class="pismeno"> elements
     that Docling may have lost during conversion.
@@ -4557,7 +4557,7 @@ def extract_pismenos_from_html(html_path: Path, paragraph_id: str) -> List[Dict[
         paragraph_id: Paragraph ID (e.g., "paragraf-2")
         
     Returns:
-        List of pismeno dictionaries with marker, text, and subitems
+        Tuple of (intro_text, list of pismeno dictionaries)
     """
     from bs4 import BeautifulSoup
     
@@ -4566,13 +4566,23 @@ def extract_pismenos_from_html(html_path: Path, paragraph_id: str) -> List[Dict[
             soup = BeautifulSoup(f.read(), 'html.parser')
     except Exception as e:
         log_progress("WARNING", f"Failed to load HTML for pismeno extraction: {e}")
-        return []
+        return "", []
+    
+    # Find the paragraph div
+    para_div = soup.find('div', id=paragraph_id)
+    if not para_div:
+        return "", []
+    
+    # Extract intro text - the direct child <div class="text"> that has id like "paragraf-2.text"
+    intro_text = ""
+    intro_div = para_div.find('div', id=f"{paragraph_id}.text", class_='text')
+    if intro_div:
+        intro_text = intro_div.get_text(strip=True)
     
     pismenos = []
     
-    # Find all pismeno divs for this paragraph
-    # HTML IDs are like: paragraf-2.pismeno-a, paragraf-2.pismeno-b, etc.
-    pismeno_divs = soup.find_all('div', class_='pismeno')
+    # Find all pismeno divs within this paragraph
+    pismeno_divs = para_div.find_all('div', class_='pismeno')
     
     for pismeno_div in pismeno_divs:
         div_id = pismeno_div.get('id', '')
@@ -4634,7 +4644,7 @@ def extract_pismenos_from_html(html_path: Path, paragraph_id: str) -> List[Dict[
         
         pismenos.append(pismeno_entry)
     
-    return pismenos
+    return intro_text, pismenos
 
 
 def enrich_paragraphs_from_html(structure: Dict[str, Any], html_path: Path) -> int:
@@ -4669,8 +4679,8 @@ def enrich_paragraphs_from_html(structure: Dict[str, Any], html_path: Path) -> i
             if not odseks and len(intro_text) > 200:
                 paragraph_id = paragraph.get("id", "")
                 
-                # Try to extract pismenos from HTML
-                pismenos = extract_pismenos_from_html(html_path, paragraph_id)
+                # Try to extract intro text and pismenos from HTML
+                html_intro_text, pismenos = extract_pismenos_from_html(html_path, paragraph_id)
                 
                 if pismenos:
                     # Create a synthetic odsek to hold the pismenos
@@ -4678,7 +4688,7 @@ def enrich_paragraphs_from_html(structure: Dict[str, Any], html_path: Path) -> i
                     synthetic_odsek = {
                         "id": f"odsek-{paragraph_id.replace('paragraf-', '')}.1",
                         "marker": "",  # No marker for synthetic odsek
-                        "text": "",  # Intro text before pismenos (if any)
+                        "text": "",  # No odsek-level intro text
                         "tables": [],
                         "pictures": [],
                         "references_metadata": [],
@@ -4686,26 +4696,13 @@ def enrich_paragraphs_from_html(structure: Dict[str, Any], html_path: Path) -> i
                         "pismenos": pismenos
                     }
                     
-                    # Extract any intro text before the first pismeno
-                    # The intro_text often starts with a title like "Základné pojmy\nNa účely..."
-                    lines = intro_text.split('\n')
-                    intro_lines = []
-                    for line in lines[:5]:  # Check first few lines
-                        stripped = line.strip()
-                        if stripped and len(stripped) < 100:
-                            intro_lines.append(stripped)
-                        else:
-                            break
-                    
-                    # Set paragraph intro to just the title portion
-                    if intro_lines:
-                        paragraph["intro_text"] = intro_lines[0]
-                        synthetic_odsek["text"] = '\n'.join(intro_lines[1:]) if len(intro_lines) > 1 else ""
-                    
+                    # Set paragraph intro to the extracted intro from HTML
+                    # e.g., "Na účely tohto zákona sa rozumie"
+                    paragraph["intro_text"] = html_intro_text
                     paragraph["odseks"] = [synthetic_odsek]
                     enriched_count += 1
                     
-                    log_progress("INFO", f"Enriched {paragraph_id} with {len(pismenos)} pismenos from HTML")
+                    log_progress("INFO", f"Enriched {paragraph_id} with {len(pismenos)} pismenos from HTML (intro: '{html_intro_text[:50]}...')")
     
     return enriched_count
 
