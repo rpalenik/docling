@@ -86,6 +86,102 @@ def format_marker_text(marker: str, text: str, indent_level: int) -> str:
     return '\n'.join(result)
 
 
+def parse_embedded_pismenos(intro_text: str) -> str:
+    """
+    Parse intro_text that contains embedded pismenos and format with proper indentation.
+    
+    Handles two patterns:
+    1. Explicit markers: a), b), c) etc.
+    2. Definition terms (like § 2 "Základné pojmy"): term followed by definition, 
+       with numbered subitems 1., 2., 1a., 1b. etc.
+    
+    Args:
+        intro_text: The paragraph intro text that may contain embedded pismenos
+        
+    Returns:
+        Formatted text with proper indentation for embedded pismenos
+    """
+    import re
+    
+    if not intro_text:
+        return intro_text
+    
+    lines = intro_text.split('\n')
+    result = []
+    current_indent = 0  # 0 = paragraph intro, 1 = pismeno/term level, 2 = numbered subitem
+    in_definition_section = False
+    
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped:
+            result.append("")
+            continue
+        
+        # Check for explicit pismeno marker at start (a), b), etc.)
+        pismeno_match = re.match(r'^([a-z])\)\s*(.*)$', stripped)
+        if pismeno_match:
+            letter = pismeno_match.group(1)
+            text = pismeno_match.group(2)
+            result.append(f"{TAB}{letter}) {text}")
+            current_indent = 1
+            in_definition_section = True
+            continue
+        
+        # Check for numbered subitem (1., 2., 1a., 1b., etc.) - must be standalone or at start
+        numbered_match = re.match(r'^(\d+[a-z]?)\.\s*$', stripped)
+        if numbered_match:
+            # Standalone number like "1." on its own line
+            number = numbered_match.group(1)
+            result.append(f"{TAB}{TAB}{number}.")
+            current_indent = 2
+            continue
+        
+        # Check for numbered item with text
+        numbered_text_match = re.match(r'^(\d+[a-z]?)\.\s+(.+)$', stripped)
+        if numbered_text_match:
+            number = numbered_text_match.group(1)
+            text = numbered_text_match.group(2)
+            result.append(f"{TAB}{TAB}{number}. {text}")
+            current_indent = 2
+            continue
+        
+        # Check if this looks like a definition term (short line ending with comma or starting a definition)
+        # Definition terms are typically: single word or short phrase, often followed by definition text
+        is_definition_term = (
+            in_definition_section and 
+            current_indent <= 1 and
+            len(stripped) < 80 and
+            (stripped.endswith(',') or 
+             re.match(r'^[a-záäčďéíľĺňóôŕšťúýž\s]+$', stripped.split()[0] if stripped.split() else '', re.IGNORECASE))
+        )
+        
+        # Detect start of definitions section (after intro like "Na účely tohto zákona sa rozumie")
+        if 'sa rozumie' in stripped or 'rozumie sa' in stripped:
+            result.append(stripped)
+            in_definition_section = True
+            current_indent = 0
+            continue
+        
+        # Handle based on context
+        if current_indent == 2:
+            # Continuation of numbered subitem
+            result.append(f"{TAB}{TAB}   {stripped}")
+        elif current_indent == 1 or (in_definition_section and not stripped[0].isupper()):
+            # Continuation of pismeno/term or lowercase continuation
+            result.append(f"{TAB}   {stripped}")
+        elif in_definition_section and stripped[0].islower():
+            # New definition term (starts with lowercase in Slovak)
+            result.append(f"{TAB}{stripped}")
+            current_indent = 1
+        else:
+            # Regular paragraph text
+            result.append(stripped)
+            if in_definition_section:
+                current_indent = 1
+    
+    return '\n'.join(result)
+
+
 def format_table(table: Dict[str, Any], indent_level: int = 0) -> str:
     """
     Format a table with proper indentation.
@@ -412,17 +508,42 @@ def chunk_at_pismeno_level(
         
         for paragraph in paragraphs:
             para_context = ""
+            intro = paragraph.get('intro_text', '')
+            marker = paragraph.get('marker', '')
+            odseks = paragraph.get('odseks', [])
+            
+            # Check if this paragraph has embedded pismenos (no odseks but pismeno patterns in intro)
+            # Patterns: explicit a), b) markers OR numbered items directly in text
+            has_embedded_pismenos = (
+                not odseks and 
+                intro and 
+                len(intro) > 100 and
+                (
+                    any(c in intro for c in ['\na)', '\nb)', '\nc)', '\nd)']) or
+                    '\n1.' in intro  # Numbered items directly in intro
+                )
+            )
+            
             if include_context:
-                marker = paragraph.get('marker', '')
-                intro = paragraph.get('intro_text', '')
                 para_context = f"\n## {marker}\n"
                 if intro:
-                    if len(intro) < 100 and '\n' not in intro:
+                    if has_embedded_pismenos:
+                        # Parse embedded pismenos with proper indentation
+                        # First line might be a title, rest has embedded structure
+                        lines = intro.split('\n')
+                        if lines:
+                            # First line is typically the title
+                            first_line = lines[0].strip()
+                            if first_line and len(first_line) < 100:
+                                para_context += f"### {first_line}\n"
+                            rest = '\n'.join(lines[1:]) if len(lines) > 1 else ''
+                            if rest:
+                                formatted_rest = parse_embedded_pismenos(rest)
+                                para_context += f"\n{formatted_rest}\n"
+                    elif len(intro) < 100 and '\n' not in intro:
                         para_context += f"### {intro}\n"
                     else:
                         para_context += f"\n{intro}\n"
-            
-            odseks = paragraph.get('odseks', [])
             
             # If paragraph has no odseks, chunk at paragraph level
             if not odseks:
