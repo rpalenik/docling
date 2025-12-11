@@ -701,6 +701,43 @@ def chunk_document(
     return chunks
 
 
+def convert_to_rag_format(chunks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Convert internal chunk format to RAG-friendly format.
+    
+    Input: [{"chunk_id": ..., "content": ..., ...}, ...]
+    Output: {"chunks": [{"text": ..., "metadata": {...}}, ...]}
+    
+    Args:
+        chunks: List of chunk dictionaries in internal format
+        
+    Returns:
+        RAG-formatted dictionary with chunks array
+    """
+    rag_chunks = []
+    
+    for chunk in chunks:
+        # Extract text from content
+        text = chunk.get('content', '')
+        
+        # Everything else goes to metadata
+        metadata = {
+            'chunk_id': chunk.get('chunk_id', ''),
+            'level': chunk.get('level', ''),
+            'path': chunk.get('path', {}),
+            'tables': chunk.get('tables', []),
+            'has_subitems': chunk.get('has_subitems', False),
+            'content_length': chunk.get('content_length', len(text))
+        }
+        
+        rag_chunks.append({
+            'text': text,
+            'metadata': metadata
+        })
+    
+    return {'chunks': rag_chunks}
+
+
 def format_chunks_to_markdown(chunks: List[Dict[str, Any]], include_separators: bool = True) -> str:
     """
     Combine all chunks into a single markdown string.
@@ -725,7 +762,7 @@ def format_chunks_to_markdown(chunks: List[Dict[str, Any]], include_separators: 
 def save_chunks(
     chunks: List[Dict[str, Any]], 
     output_path: Path,
-    format: str = "json"
+    format: str = "all"
 ) -> None:
     """
     Save chunks to file.
@@ -733,22 +770,29 @@ def save_chunks(
     Args:
         chunks: List of chunk dictionaries
         output_path: Output file path
-        format: Output format ("json", "md", "both")
+        format: Output format ("json", "md", "rag", "all")
     """
     output_path = Path(output_path)
     
-    if format in ("json", "both"):
+    if format in ("json", "all"):
         json_path = output_path.with_suffix('.chunks.json')
         with open(json_path, 'w', encoding='utf-8') as f:
             json.dump(chunks, f, ensure_ascii=False, indent=2)
         print(f"Saved {len(chunks)} chunks to {json_path}")
     
-    if format in ("md", "both"):
+    if format in ("md", "all"):
         md_path = output_path.with_suffix('.chunks.md')
         md_content = format_chunks_to_markdown(chunks)
         with open(md_path, 'w', encoding='utf-8') as f:
             f.write(md_content)
         print(f"Saved markdown to {md_path}")
+    
+    if format in ("rag", "all"):
+        rag_path = output_path.with_suffix('.rag.json')
+        rag_data = convert_to_rag_format(chunks)
+        with open(rag_path, 'w', encoding='utf-8') as f:
+            json.dump(rag_data, f, ensure_ascii=False, indent=2)
+        print(f"Saved RAG format ({len(chunks)} chunks) to {rag_path}")
 
 
 def main():
@@ -768,9 +812,9 @@ def main():
     )
     parser.add_argument(
         "--format", "-f",
-        choices=["json", "md", "both"],
-        default="both",
-        help="Output format (default: both)"
+        choices=["json", "md", "rag", "all"],
+        default="all",
+        help="Output format: json (structured), md (markdown), rag (RAG-friendly), all (default: all)"
     )
     parser.add_argument(
         "--no-context",
