@@ -829,7 +829,8 @@ def format_chunks_to_markdown(chunks: List[Dict[str, Any]], include_separators: 
 def save_chunks(
     chunks: List[Dict[str, Any]], 
     output_path: Path,
-    format: str = "all"
+    format: str = "all",
+    chunk_level: str = "pismeno"
 ) -> None:
     """
     Save chunks to file.
@@ -838,24 +839,29 @@ def save_chunks(
         chunks: List of chunk dictionaries
         output_path: Output file path
         format: Output format ("json", "md", "rag", "all")
+        chunk_level: Chunking level used (for filename)
     """
     output_path = Path(output_path)
     
+    # Insert chunk_level into filename before extension
+    # e.g., "file.json" -> "file.pismeno.json"
+    stem = output_path.stem
+    
     if format in ("json", "all"):
-        json_path = output_path.with_suffix('.chunks.json')
+        json_path = output_path.parent / f"{stem}.{chunk_level}.chunks.json"
         with open(json_path, 'w', encoding='utf-8') as f:
             json.dump(chunks, f, ensure_ascii=False, indent=2)
         print(f"Saved {len(chunks)} chunks to {json_path}")
     
     if format in ("md", "all"):
-        md_path = output_path.with_suffix('.chunks.md')
+        md_path = output_path.parent / f"{stem}.{chunk_level}.chunks.md"
         md_content = format_chunks_to_markdown(chunks)
         with open(md_path, 'w', encoding='utf-8') as f:
             f.write(md_content)
         print(f"Saved markdown to {md_path}")
     
     if format in ("rag", "all"):
-        rag_path = output_path.with_suffix('.rag.json')
+        rag_path = output_path.parent / f"{stem}.{chunk_level}.rag.json"
         rag_data = convert_to_rag_format(chunks)
         with open(rag_path, 'w', encoding='utf-8') as f:
             json.dump(rag_data, f, ensure_ascii=False, indent=2)
@@ -925,7 +931,7 @@ def main():
     
     # Save output
     output_path = Path(args.output) if args.output else input_path
-    save_chunks(chunks, output_path, args.format)
+    save_chunks(chunks, output_path, args.format, args.chunk_level)
     
     # Print summary
     levels = {}
