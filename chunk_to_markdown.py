@@ -475,22 +475,23 @@ def create_chunk(
     }
 
 
-def chunk_at_pismeno_level(
+def chunk_at_level(
     data: Dict[str, Any],
+    chunk_level: str = "pismeno",
     include_context: bool = True
 ) -> List[Dict[str, Any]]:
     """
-    Chunk document at pismeno level (or lowest available).
+    Universal chunking function that chunks at any hierarchical level.
     
     Args:
         data: Parsed JSON document
+        chunk_level: Target chunking level ("pismeno", "odsek", "paragraph", "part")
         include_context: Whether to include parent context in each chunk
         
     Returns:
         List of chunk dictionaries
     """
     chunks = []
-    
     parts = data.get('parts', [])
     
     for part in parts:
@@ -504,38 +505,59 @@ def chunk_at_pismeno_level(
                 part_context += f"## {title_text}\n"
             part_context += "\n---\n"
         
-        paragraphs = part.get('paragraphs', [])
+        # Chunk at part level
+        if chunk_level == "part":
+            content = part_context
+            all_tables = []
+            all_has_subitems = False
+            
+            paragraphs = part.get('paragraphs', [])
+            for paragraph in paragraphs:
+                para_content = format_paragraph(paragraph, include_odseks=True)
+                content += para_content + "\n---\n"
+                
+                # Collect all tables from paragraph
+                para_tables = paragraph.get('tables', [])
+                all_tables.extend([t for t in para_tables if t])
+                
+                for odsek in paragraph.get('odseks', []):
+                    odsek_tables = odsek.get('tables', [])
+                    all_tables.extend([t for t in odsek_tables if t])
+                    for pismeno in odsek.get('pismenos', []):
+                        pismeno_tables = pismeno.get('tables', [])
+                        all_tables.extend([t for t in pismeno_tables if t])
+                        if pismeno.get('subitems'):
+                            all_has_subitems = True
+            
+            metadata = create_chunk_metadata(part=part)
+            chunks.append(create_chunk(content, metadata, all_tables, all_has_subitems))
+            continue
         
+        # Process paragraphs
+        paragraphs = part.get('paragraphs', [])
         for paragraph in paragraphs:
             para_context = ""
             intro = paragraph.get('intro_text', '')
             marker = paragraph.get('marker', '')
-            title = paragraph.get('title', marker)  # Use title if available, fallback to marker
+            title = paragraph.get('title', marker)
             odseks = paragraph.get('odseks', [])
             
-            # Check if this paragraph has embedded pismenos (no odseks but pismeno patterns in intro)
-            # Patterns: explicit a), b) markers OR numbered items directly in text
-            has_embedded_pismenos = (
-                not odseks and 
-                intro and 
-                len(intro) > 100 and
-                (
-                    any(c in intro for c in ['\na)', '\nb)', '\nc)', '\nd)']) or
-                    '\n1.' in intro  # Numbered items directly in intro
-                )
-            )
-            
+            # Build paragraph context
             if include_context:
-                # Use title if it contains more info than just marker (e.g., "§ 2 Základné pojmy")
                 para_header = title if title and title != marker else marker
                 para_context = f"\n## {para_header}\n"
+                
                 if intro:
+                    has_embedded_pismenos = (
+                        not odseks and 
+                        intro and 
+                        len(intro) > 100 and
+                        (any(c in intro for c in ['\na)', '\nb)', '\nc)', '\nd)']) or '\n1.' in intro)
+                    )
+                    
                     if has_embedded_pismenos:
-                        # Parse embedded pismenos with proper indentation
-                        # First line might be a title, rest has embedded structure
                         lines = intro.split('\n')
                         if lines:
-                            # First line is typically the title
                             first_line = lines[0].strip()
                             if first_line and len(first_line) < 100:
                                 para_context += f"### {first_line}\n"
@@ -544,68 +566,112 @@ def chunk_at_pismeno_level(
                                 formatted_rest = parse_embedded_pismenos(rest)
                                 para_context += f"\n{formatted_rest}\n"
                     elif len(intro) < 100 and '\n' not in intro:
-                        # Short intro - use as subtitle only if title doesn't already contain nadpis
-                        # e.g., "Na účely tohto zákona sa rozumie" for § 2
                         para_context += f"### {intro}\n"
                     else:
                         para_context += f"\n{intro}\n"
             
-            # If paragraph has no odseks, chunk at paragraph level
-            if not odseks:
+            # Chunk at paragraph level
+            if chunk_level == "paragraph":
                 content = part_context + para_context
                 
                 # Add paragraph-level tables
-                tables = paragraph.get('tables', [])
-                for table in tables:
+                para_tables = paragraph.get('tables', [])
+                for table in para_tables:
                     if table:
                         content += f"\n{format_table(table, 0)}\n"
                 
+                # Add all odseks with their content
+                for odsek in odseks:
+                    content += "\n"
+                    content += format_odsek(odsek, include_pismenos=True)
+                
+                # Collect all tables from paragraph and nested levels
+                all_tables = list(para_tables)
+                all_has_subitems = False
+                for odsek in odseks:
+                    odsek_tables = odsek.get('tables', [])
+                    all_tables.extend([t for t in odsek_tables if t])
+                    for pismeno in odsek.get('pismenos', []):
+                        pismeno_tables = pismeno.get('tables', [])
+                        all_tables.extend([t for t in pismeno_tables if t])
+                        if pismeno.get('subitems'):
+                            all_has_subitems = True
+                
                 metadata = create_chunk_metadata(part=part, paragraph=paragraph)
-                chunks.append(create_chunk(content, metadata, tables))
+                chunks.append(create_chunk(content, metadata, all_tables, all_has_subitems))
                 continue
             
+            # Process odseks
             for odsek in odseks:
                 odsek_context = ""
                 if include_context:
-                    marker = odsek.get('marker', '')
-                    text = odsek.get('text', '')
-                    odsek_context = f"\n{format_marker_text(marker, text, INDENT_ODSEK)}\n"
+                    odsek_marker = odsek.get('marker', '')
+                    odsek_text = odsek.get('text', '')
+                    odsek_context = f"\n{format_marker_text(odsek_marker, odsek_text, INDENT_ODSEK)}\n"
                 
                 pismenos = odsek.get('pismenos', [])
                 
-                # If odsek has no pismenos, chunk at odsek level
-                if not pismenos:
+                # Chunk at odsek level
+                if chunk_level == "odsek":
                     content = part_context + para_context + odsek_context
                     
                     # Add odsek-level tables
-                    tables = odsek.get('tables', [])
-                    for table in tables:
+                    odsek_tables = odsek.get('tables', [])
+                    for table in odsek_tables:
                         if table:
                             content += f"\n{format_table(table, INDENT_ODSEK)}\n"
                     
+                    # Add all pismenos with their content
+                    for pismeno in pismenos:
+                        content += format_pismeno(pismeno, include_subitems=True)
+                    
+                    # Collect all tables from odsek and nested levels
+                    all_tables = list(odsek_tables)
+                    all_has_subitems = False
+                    for pismeno in pismenos:
+                        pismeno_tables = pismeno.get('tables', [])
+                        all_tables.extend([t for t in pismeno_tables if t])
+                        if pismeno.get('subitems'):
+                            all_has_subitems = True
+                    
                     metadata = create_chunk_metadata(part=part, paragraph=paragraph, odsek=odsek)
-                    chunks.append(create_chunk(content, metadata, tables))
+                    chunks.append(create_chunk(content, metadata, all_tables, all_has_subitems))
                     continue
                 
-                # Chunk at pismeno level
-                for pismeno in pismenos:
-                    content = part_context + para_context + odsek_context
+                # Chunk at pismeno level (default)
+                if chunk_level == "pismeno":
+                    for pismeno in pismenos:
+                        content = part_context + para_context + odsek_context
+                        
+                        # Add pismeno content
+                        pismeno_content = format_pismeno(pismeno, include_subitems=True)
+                        content += pismeno_content
+                        
+                        # Collect tables
+                        tables = pismeno.get('tables', [])
+                        has_subitems = bool(pismeno.get('subitems', []))
+                        
+                        metadata = create_chunk_metadata(
+                            part=part, 
+                            paragraph=paragraph, 
+                            odsek=odsek, 
+                            pismeno=pismeno
+                        )
+                        chunks.append(create_chunk(content, metadata, tables, has_subitems))
+            
+            # Handle paragraphs without odseks (chunk at paragraph level regardless of chunk_level)
+            if not odseks:
+                if chunk_level in ("paragraph", "odsek", "pismeno"):
+                    content = part_context + para_context
                     
-                    # Add pismeno content
-                    pismeno_content = format_pismeno(pismeno)
-                    content += pismeno_content
+                    # Add paragraph-level tables
+                    para_tables = paragraph.get('tables', [])
+                    for table in para_tables:
+                        if table:
+                            content += f"\n{format_table(table, 0)}\n"
                     
-                    # Collect tables
-                    tables = pismeno.get('tables', [])
-                    has_subitems = bool(pismeno.get('subitems', []))
-                    
-                    metadata = create_chunk_metadata(
-                        part=part, 
-                        paragraph=paragraph, 
-                        odsek=odsek, 
-                        pismeno=pismeno
-                    )
-                    chunks.append(create_chunk(content, metadata, tables, has_subitems))
+                    metadata = create_chunk_metadata(part=part, paragraph=paragraph)
+                    chunks.append(create_chunk(content, metadata, para_tables))
     
     return chunks
 
@@ -687,12 +753,13 @@ def chunk_document(
     """
     chunks = []
     
-    # Main document chunks
-    if chunk_level == "pismeno":
-        chunks.extend(chunk_at_pismeno_level(data, include_context))
-    else:
-        # TODO: Implement other chunking levels
-        chunks.extend(chunk_at_pismeno_level(data, include_context))
+    # Validate chunk level
+    valid_levels = ["pismeno", "odsek", "paragraph", "part"]
+    if chunk_level not in valid_levels:
+        raise ValueError(f"Invalid chunk_level: {chunk_level}. Must be one of {valid_levels}")
+    
+    # Main document chunks using universal function
+    chunks.extend(chunk_at_level(data, chunk_level, include_context))
     
     # Annex chunks
     if include_annexes:
